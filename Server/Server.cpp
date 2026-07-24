@@ -2,8 +2,8 @@
 
 #include "Server.h"
 
-#include "../ConfigParser/ConfigManager.h"
-#include "../ModuleFactory/ModuleFactory.h"
+#include "ConfigParser/ConfigManager.h"
+#include "ModuleFactory/ModuleFactory.h"
 
 #include <fcntl.h>
 #include <stdexcept>

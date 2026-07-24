@@ -1,10 +1,11 @@
 // Created by yakov on 24/07/2026.
 
 #pragma once
+
 #include <memory>
 
-#include "../ConfigParser/ConfigFile.h"
-#include "../Modules/Module.h"
+#include "ConfigParser/ConfigFile.h"
+#include "Modules/Module.h"
 
 class ModuleFactory
 {

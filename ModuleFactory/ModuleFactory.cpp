@@ -2,7 +2,7 @@
 
 #include "ModuleFactory.h"
 
-#include "../WakeOnLan/WakeOnLanManager.h"
+#include "Modules/WakeOnLan/WakeOnLanManager.h"
 
 std::unordered_map<std::string, ModuleFactory::Creator> ModuleFactory::s_modules =
 {

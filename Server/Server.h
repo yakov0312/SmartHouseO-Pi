@@ -1,16 +1,16 @@
 // Created by yakov on 24/07/2026.
 
 #pragma once
+
 #include <condition_variable>
 #include <memory>
 #include <queue>
 #include <string>
 #include <unordered_map>
-#include <vector>
 
-#include "../ConfigParser/ConfigFile.h"
-#include "../ConfigParser/ConfigManager.h"
-#include "../Modules/Module.h"
+#include "ConfigParser/ConfigFile.h"
+#include "ConfigParser/ConfigManager.h"
+#include "Modules/Module.h"
 
 enum State : int
 {

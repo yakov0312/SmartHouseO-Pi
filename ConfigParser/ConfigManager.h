@@ -1,12 +1,13 @@
 // Created by yakov on 24/07/2026.
 
 #pragma once
+
 #include <string>
 #include <unordered_map>
 
 #include "ConfigFile.h"
 
-constexpr auto DEFAULT_CONFIG = "./config.co";
+constexpr auto DEFAULT_CONFIG = "../Configs/Config.conf";
 
 class ConfigManager
 {

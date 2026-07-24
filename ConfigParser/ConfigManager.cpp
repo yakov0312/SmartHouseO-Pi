@@ -4,7 +4,6 @@
 #include <fstream>
 #include <memory>
 
-
 ConfigManager::ConfigManager(const std::string& configPath)
 {
 	std::ifstream config(configPath);
@@ -20,7 +19,7 @@ ConfigManager::ConfigManager(const std::string& configPath)
 	std::string line;
 	while (getline(config, line))
 	{
-		if (line[0] == COMMENT_SYM)
+		if (line.empty() || line[0] == COMMENT_SYM)
 			continue;
 
 		size_t sectionPos = line.find_first_of("=");
