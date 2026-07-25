@@ -4,7 +4,7 @@
 #include <fstream>
 #include <memory>
 
-ConfigManager::ConfigManager(const std::string& configPath)
+ConfigManager::ConfigManager(const std::filesystem::path& configPath)
 {
 	std::ifstream config(configPath);
 	if (!config && configPath != DEFAULT_CONFIG) // Fallback
@@ -22,23 +22,26 @@ ConfigManager::ConfigManager(const std::string& configPath)
 		if (line.empty() || line[0] == COMMENT_SYM)
 			continue;
 
-		size_t sectionPos = line.find_first_of("=");
+		size_t sectionPos = line.find_first_of('=');
 		if (sectionPos == std::string::npos)
 			continue;
 
 		std::string section = line.substr(0, sectionPos);
-		std::string sectionPath = line.substr(sectionPos + 1);
+		if (m_configFiles.contains(section))
+			continue;
+
+		std::filesystem::path sectionPath = line.substr(sectionPos + 1);
 		if (sectionPath.empty())
 			continue;
 
-		if (m_configFiles.contains(section))
-			continue;
+		if (sectionPath.is_relative() && sectionPath != "Enable")
+			sectionPath = configPath.parent_path() / sectionPath;
 
 		m_configFiles.emplace(section, sectionPath);
 	}
 }
 
-const ConfigFile * ConfigManager::getConfig(const std::string &configName)
+const ConfigFile * ConfigManager::getConfig(const std::string& configName)
 {
 	const auto it = m_configFiles.find(configName);
 	if (it == m_configFiles.end())

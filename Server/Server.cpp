@@ -23,7 +23,7 @@ constexpr uint32_t DEFAULT_MAX_CLIENTS = 32;
 constexpr uint32_t MAX_EVENTS = 64;
 
 /*
- * todo: implement the wakeOnLan, make client buffers thread safe, handle edge cases, clean up configs.
+ * todo: implement the wakeOnLan, handle edge cases, clean up configs.
 */
 Server::Server(ConfigManager& config) : m_clients(0), m_serverFd(-1)
 {
@@ -117,7 +117,12 @@ void Server::commandWorker()
 			continue;
 
 		const Result res = it->second->execute(cmd);
-		m_clients[cmd.clientFd].oBuffer += res.message;
+		Client& client = *m_clients[cmd.clientFd];
+
+		{
+			std::lock_guard<std::mutex> lock(client.oBuffer.mtx);
+			client.oBuffer.buf += res.message;
+		}
 
 		epoll_event event{};
 		event.events = EPOLLIN | EPOLLOUT;
@@ -189,18 +194,15 @@ void Server::handleNewConnection()
 
 		epoll_ctl(m_epollFd, EPOLL_CTL_ADD, clientFd, &event);
 
-		m_clients[clientFd] = {NEW};
+		m_clients.emplace(clientFd, std::make_unique<Client>());
 	}
 }
 
 void Server::handleClient(const int fd)
 {
-	Client& client = m_clients[fd];
+	Client& client = *m_clients[fd];
 	char buffer[256];
-	const int bytes = recv(fd, buffer, sizeof(buffer), 0);
-	if (bytes < 0)
-		return;
-
+	const size_t bytes = recv(fd, buffer, sizeof(buffer), 0);
 	if (bytes == 0)
 	{
 		close(fd);
@@ -208,18 +210,23 @@ void Server::handleClient(const int fd)
 		return;
 	}
 
-	client.iBuffer.append(buffer, bytes);
+	std::unique_lock uLock(client.oBuffer.mtx);
+
+	client.iBuffer.buf.append(buffer, bytes);
 
 	size_t endCom = 0;
 
 	while (true)
 	{
 		Command cmd;
-		const size_t pos = client.iBuffer.find('\n', endCom);
+
+		const size_t pos = client.iBuffer.buf.find('\n', endCom);
 		if (pos == std::string::npos)
 			break;
 
-		std::stringstream ss(client.iBuffer.substr(endCom, pos - endCom));
+		std::stringstream ss(client.iBuffer.buf.substr(endCom, pos - endCom));
+
+		uLock.unlock();
 
 		if (!(ss >> cmd.service >> cmd.action))
 			continue;
@@ -239,23 +246,31 @@ void Server::handleClient(const int fd)
 
 		endCom = pos;
 		endCom++;
+
+		uLock.lock();
 	}
 
-	client.iBuffer.erase(0, endCom);
+	client.iBuffer.buf.erase(0, endCom);
+	uLock.unlock();
 }
 
 void Server::handleResponses(const int fd)
 {
-	Client& client = m_clients[fd];
-	const int bytes = send(fd, client.oBuffer.data(), client.oBuffer.size(), 0);
-	if (bytes <= 0)
-		return;
+	Client& client = *m_clients[fd];
+	std::unique_lock lock(client.oBuffer.mtx);
+ 	const size_t bytes = send(fd, client.oBuffer.buf.data(), client.oBuffer.buf.size(), 0);
+	if (bytes == 0)
+		return; // lock self destructs and unlocks itself
 
-	if (bytes < client.oBuffer.size())
-		client.oBuffer.erase(0, bytes);
+	if (bytes < client.oBuffer.buf.size())
+	{
+		client.oBuffer.buf.erase(0, bytes);
+		lock.unlock();
+	}
 	else
 	{
-		client.oBuffer.clear();
+		client.oBuffer.buf.clear();
+		lock.unlock();
 
 		epoll_event event{};
 		event.events = EPOLLIN;

@@ -18,11 +18,17 @@ enum State : int
 	AUTH
 };
 
+struct ClientBuffer
+{
+	std::string buf;
+	std::mutex mtx;
+};
+
 struct Client
 {
 	State state;
-	std::string iBuffer;
-	std::string oBuffer;
+	ClientBuffer oBuffer;
+	ClientBuffer iBuffer;
 };
 
 class Server
@@ -47,7 +53,7 @@ private:
 	std::mutex m_commandMutex;
 	std::condition_variable m_commandCV;
 
-	std::unordered_map<int, Client> m_clients;
+	std::unordered_map<int, std::unique_ptr<Client>> m_clients;
 
 	int m_serverFd;
 	int m_epollFd;

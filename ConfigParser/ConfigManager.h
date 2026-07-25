@@ -2,17 +2,19 @@
 
 #pragma once
 
+#include <filesystem>
 #include <string>
 #include <unordered_map>
 
 #include "ConfigFile.h"
+
 
 constexpr auto DEFAULT_CONFIG = "../Configs/Config.conf";
 
 class ConfigManager
 {
 public:
-	explicit ConfigManager(const std::string& configPath = DEFAULT_CONFIG);
+	explicit ConfigManager(const std::filesystem::path& configPath = DEFAULT_CONFIG);
 	~ConfigManager() = default;
 
 	inline const std::unordered_map<std::string, ConfigFile>& getConfigs()
