@@ -27,8 +27,6 @@ ConfigManager::ConfigManager(const std::filesystem::path& configPath)
 			continue;
 
 		std::string section = line.substr(0, sectionPos);
-		if (m_configFiles.contains(section))
-			continue;
 
 		std::filesystem::path sectionPath = line.substr(sectionPos + 1);
 		if (sectionPath.empty())

@@ -13,11 +13,13 @@ public:
 	explicit ConfigFile(const std::filesystem::path& configPath);
 	~ConfigFile() = default;
 
-	std::string getString(const std::string& key, const std::string& defaultValue = "") const;
-	int getInt(const std::string& key, int defaultValue = 0) const;
+	std::string getString(const std::string& section, const std::string& key, const std::string& defaultValue = "") const;
+	int getInt(const std::string& section, const std::string& key, int defaultValue = 0) const;
+
+	const std::unordered_map<std::string, std::string>* getConfig(const std::string& section) const;
 
 private:
-	std::unordered_map<std::string, std::filesystem::path> m_config;
+	std::unordered_map<std::string, std::unordered_map<std::string, std::string>> m_config;
 };
 
 

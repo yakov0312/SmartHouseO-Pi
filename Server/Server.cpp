@@ -22,9 +22,6 @@ constexpr uint32_t DEFAULT_MAX_CLIENTS = 32;
 
 constexpr uint32_t MAX_EVENTS = 64;
 
-/*
- * todo: implement the wakeOnLan, handle edge cases, clean up configs.
-*/
 Server::Server(ConfigManager& config) : m_clients(0), m_serverFd(-1)
 {
 	// Get server config
@@ -33,8 +30,8 @@ Server::Server(ConfigManager& config) : m_clients(0), m_serverFd(-1)
 		throw std::runtime_error("Server service is not enabled");
 
 	// Init data
-	m_maxClients = serverConf->getInt("MaxClients", DEFAULT_MAX_CLIENTS);
-	const int backlog = serverConf->getInt("Backlog", DEFAULT_BACKLOG);
+	m_maxClients = serverConf->getInt("Settings", "MaxClients", DEFAULT_MAX_CLIENTS);
+	const int backlog = serverConf->getInt("Settings", "Backlog", DEFAULT_BACKLOG);
 
 	// Construct the needed modules
 	const auto& configs = config.getConfigs();
@@ -57,7 +54,6 @@ void Server::startServer(const ConfigFile& config)
 {
 	// Create server fd
 	m_serverFd = socket(AF_INET, SOCK_STREAM, 0);
-
 	if (m_serverFd == -1)
 		throw std::runtime_error("Failed to create socket");
 
@@ -67,7 +63,7 @@ void Server::startServer(const ConfigFile& config)
 	sockaddr_in addr{};
 	addr.sin_family = AF_INET;
 
-	const uint16_t port = config.getInt("Port", DEFAULT_PORT);
+	const uint16_t port = config.getInt("Settings", "Port", DEFAULT_PORT);
 	addr.sin_port = htons(port);
 
 	addr.sin_addr.s_addr = INADDR_ANY;

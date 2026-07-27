@@ -5,7 +5,9 @@
 #include "ConfigParser/ConfigFile.h"
 #include "Modules/Module.h"
 
-class WakeOnLanManager : public Module
+constexpr uint16_t MAC_SIZE = 6;
+
+class WakeOnLanManager final : public Module
 {
 public:
 	explicit WakeOnLanManager(const ConfigFile& config);
@@ -13,6 +15,23 @@ public:
 	virtual Result execute(const Command& cmd) override;
 
 private:
+
+	Result handleDevices(const Command& cmd);
+	Result handleWake(const Command& cmd);
+	bool sendWakePacket(const std::string& macAddress) const;
+
+
+	static std::array<uint8_t, MAC_SIZE> parseMac(const std::string& mac);
+	std::string getBroadcastAddress() const;
+
+
+	std::string m_interface;
+
+	const ConfigFile& m_config;
+
+	using CommandHandler = Result(WakeOnLanManager::*)(const Command& cmd);
+
+	std::unordered_map<std::string, WakeOnLanManager::CommandHandler> m_commands;
 };
 
 
