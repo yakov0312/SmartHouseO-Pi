@@ -10,11 +10,11 @@
 class ModuleFactory
 {
 public:
-	static std::unique_ptr<Module> create(const std::string& name, const ConfigFile& config);
+	static std::unique_ptr<Module> create(const std::string& name, ConfigFile& config);
 
 private:
-	static std::unique_ptr<Module> createWakeOnLan(const std::string& name, const ConfigFile& config);
+	static std::unique_ptr<Module> createWakeOnLan(const std::string& name, ConfigFile& config);
 
-	using Creator = std::unique_ptr<Module>(*)(const std::string&, const ConfigFile&);
+	using Creator = std::unique_ptr<Module>(*)(const std::string&, ConfigFile&);
 	static std::unordered_map<std::string, Creator> s_modules;
 };

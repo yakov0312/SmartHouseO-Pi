@@ -38,7 +38,7 @@ public:
 	~Server() = default;
 
 private:
-	void startServer(const ConfigFile& config);
+	void startServer(ConfigFile& config);
 	[[noreturn]] void commandWorker();
 	[[noreturn]] void run(int backlog);
 	void handleNewConnection();

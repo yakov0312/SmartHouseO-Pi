@@ -39,7 +39,7 @@ ConfigManager::ConfigManager(const std::filesystem::path& configPath)
 	}
 }
 
-const ConfigFile * ConfigManager::getConfig(const std::string& configName)
+ConfigFile* ConfigManager::getConfig(const std::string& configName)
 {
 	const auto it = m_configFiles.find(configName);
 	if (it == m_configFiles.end())

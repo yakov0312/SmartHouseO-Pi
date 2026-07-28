@@ -17,11 +17,12 @@ public:
 	explicit ConfigManager(const std::filesystem::path& configPath = DEFAULT_CONFIG);
 	~ConfigManager() = default;
 
-	inline const std::unordered_map<std::string, ConfigFile>& getConfigs()
+	inline std::unordered_map<std::string, ConfigFile>& getConfigs()
 	{
 		return m_configFiles;
 	}
-	const ConfigFile* getConfig(const std::string& configName);
+
+	ConfigFile* getConfig(const std::string& configName);
 	void removeConfig(const std::string& configName);
 
 private:

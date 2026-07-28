@@ -10,7 +10,7 @@ constexpr uint16_t MAC_SIZE = 6;
 class WakeOnLanManager final : public Module
 {
 public:
-	explicit WakeOnLanManager(const ConfigFile& config);
+	explicit WakeOnLanManager(ConfigFile& config);
 
 	virtual Result execute(const Command& cmd) override;
 
@@ -27,7 +27,7 @@ private:
 
 	std::string m_interface;
 
-	const ConfigFile& m_config;
+	ConfigFile& m_config;
 
 	using CommandHandler = Result(WakeOnLanManager::*)(const Command& cmd);
 

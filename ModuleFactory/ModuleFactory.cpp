@@ -9,7 +9,7 @@ std::unordered_map<std::string, ModuleFactory::Creator> ModuleFactory::s_modules
 	{"WakeOnLan", ModuleFactory::createWakeOnLan}
 };
 
-std::unique_ptr<Module> ModuleFactory::create(const std::string& name, const ConfigFile& config)
+std::unique_ptr<Module> ModuleFactory::create(const std::string& name, ConfigFile& config)
 {
 	const auto creator = ModuleFactory::s_modules.find(name);
 	if (creator == ModuleFactory::s_modules.end())
@@ -18,7 +18,7 @@ std::unique_ptr<Module> ModuleFactory::create(const std::string& name, const Con
 	return creator->second(name, config);
 }
 
-std::unique_ptr<Module> ModuleFactory::createWakeOnLan(const std::string& name, const ConfigFile& config)
+std::unique_ptr<Module> ModuleFactory::createWakeOnLan(const std::string& name, ConfigFile& config)
 {
 	return std::make_unique<WakeOnLanManager>(config);
 }

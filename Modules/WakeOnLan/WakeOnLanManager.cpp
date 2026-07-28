@@ -20,27 +20,15 @@
  *
  * @param config Configuration source containing settings and device data.
  */
-WakeOnLanManager::WakeOnLanManager(const ConfigFile& config) : m_config(config),
+WakeOnLanManager::WakeOnLanManager(ConfigFile& config) : m_config(config),
 		m_commands{{"Devices", &WakeOnLanManager::handleDevices}, {"Wake", &WakeOnLanManager::handleWake}}
-
 {
-	const auto conf = config.getConfig("Settings");
-	if (conf == nullptr)
-		return;
 
 	m_interface = config.getString("Settings", "Interface", "");
 
-	for (const auto& [command, State] : *conf)
-	{
-		if (State == "Disable")
-		{
-			auto it = m_commands.find(command);
-			if (it == m_commands.end())
-				continue;
-
-			it->second = nullptr; // Disabled the command
-		}
-	}
+	for (auto& [command, ptr] : m_commands)
+		if (config.getString("Settings", command, "Enable") == "Disable")
+			ptr = nullptr; // Disabled the command
 }
 
 /**
@@ -81,12 +69,12 @@ Result WakeOnLanManager::handleDevices(const Command& cmd)
 	if (cmd.args[0] == "Get")
 	{
 		const auto devices = m_config.getConfig("Devices");
-		if (devices == nullptr || devices->empty())
+		if (devices.empty())
 			return {cmd.clientFd, "No devices found"};
 
 		Result ret = {cmd.clientFd, ""};
 
-		for (const auto &device: *devices | std::views::keys)
+		for (const auto &device: devices | std::views::keys)
 			ret.message += device + ", ";
 
 		ret.message.pop_back(); // remove ','
@@ -116,18 +104,15 @@ Result WakeOnLanManager::handleWake(const Command& cmd)
 	if (cmd.args.empty())
 		return {cmd.clientFd, "Invalid command call. usage WakeOnLan Wake <DeviceName>"};
 
-	const auto devices = m_config.getConfig("Devices");
-	if (devices == nullptr)
-		return {cmd.clientFd, "No devices found"};
+	const std::string mac = m_config.getString("Devices", cmd.args[0], "");
 
-	const auto it = devices->find(cmd.args[0]);
-	if (it == devices->end())
+	if (mac.empty())
 		return {cmd.clientFd, "Device " + cmd.args[0] + " Does not exist"};
 
-	if (!sendWakePacket(it->second))
+	if (!sendWakePacket(mac))
 		return {cmd.clientFd, "Failed to send WoL packet"};
 
-	return {cmd.clientFd, "Sent WoL packet to " + it->first};
+	return {cmd.clientFd, "Sent WoL packet to " + cmd.args[0]};
 }
 
 /**
@@ -150,7 +135,7 @@ bool WakeOnLanManager::sendWakePacket(const std::string& macAddress) const
 	std::array<uint8_t, WOL_PACKET_LEN> packet{};
 	std::fill_n(packet.begin(), MAC_SIZE, 0xFF);
 
-	std::array<uint8_t, MAC_SIZE> mac;
+	std::array<uint8_t, MAC_SIZE> mac{};
 	try
 	{
 		mac = parseMac(macAddress);

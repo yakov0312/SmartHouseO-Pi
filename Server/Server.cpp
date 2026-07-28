@@ -22,10 +22,10 @@ constexpr uint32_t DEFAULT_MAX_CLIENTS = 32;
 
 constexpr uint32_t MAX_EVENTS = 64;
 
-Server::Server(ConfigManager& config) : m_clients(0), m_serverFd(-1)
+Server::Server(ConfigManager& config) : m_clients(0), m_serverFd(-1), m_epollFd(0)
 {
 	// Get server config
-	const ConfigFile* serverConf = config.getConfig("Server");
+	ConfigFile* serverConf = config.getConfig("Server");
 	if (serverConf == nullptr)
 		throw std::runtime_error("Server service is not enabled");
 
@@ -34,8 +34,8 @@ Server::Server(ConfigManager& config) : m_clients(0), m_serverFd(-1)
 	const int backlog = serverConf->getInt("Settings", "Backlog", DEFAULT_BACKLOG);
 
 	// Construct the needed modules
-	const auto& configs = config.getConfigs();
-	for (const auto& [moduleName, moduleConfig] : configs)
+	auto& configs = config.getConfigs();
+	for (auto& [moduleName, moduleConfig] : configs)
 	{
 		std::unique_ptr<Module> module = ModuleFactory::create(moduleName, moduleConfig);
 		if (module)
@@ -50,7 +50,7 @@ Server::Server(ConfigManager& config) : m_clients(0), m_serverFd(-1)
 	run(backlog);
 }
 
-void Server::startServer(const ConfigFile& config)
+void Server::startServer(ConfigFile& config)
 {
 	// Create server fd
 	m_serverFd = socket(AF_INET, SOCK_STREAM, 0);
