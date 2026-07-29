@@ -99,28 +99,54 @@ int ConfigFile::getInt(const std::string& section, const std::string& key, const
 
 void ConfigFile::add(const std::string& section, const std::string& key, const std::string& value)
 {
+	bool shouldWrite = false;
 	{
 		std::lock_guard lock(m_configMutex);
-		m_config[section][key] = value;
+
+		const auto sectionIt = m_config.find(section);
+		if (sectionIt == m_config.end())
+		{
+			m_config[section][key] = value;
+			shouldWrite = true;
+		}
+		else
+		{
+			const auto keyIt = sectionIt->second.find(key);
+			if (keyIt == sectionIt->second.end() || keyIt->second != value)
+			{
+				sectionIt->second[key] = value;
+				shouldWrite = true;
+			}
+		}
 	}
 
-	queueWrite(section, key, value);
+	if (shouldWrite)
+		queueWrite(section, key, value);
 }
 
 void ConfigFile::remove(const std::string& section, const std::string& key)
 {
+	bool removed = false;
 	{
 		std::lock_guard lock(m_configMutex);
-		const auto it = m_config.find(section);
-		if (it != m_config.end())
+
+		const auto sectionIt = m_config.find(section);
+		if (sectionIt != m_config.end())
 		{
-			it->second.erase(key);
-			if (it->second.empty())
-				m_config.erase(it);
+			const auto keyIt = sectionIt->second.find(key);
+			if (keyIt != sectionIt->second.end())
+			{
+				sectionIt->second.erase(keyIt);
+				removed = true;
+			}
+
+			if (sectionIt->second.empty())
+				m_config.erase(sectionIt);
 		}
 	}
 
-	queueWrite(section, key, "");
+	if (removed)
+		queueWrite(section, key, "");
 }
 
 std::unordered_map<std::string, std::string> ConfigFile::getConfig(const std::string& section)

@@ -37,10 +37,11 @@ public:
 	explicit Server(ConfigManager& config);
 	~Server() = default;
 
+	[[noreturn]] void run();
+
 private:
 	void startServer(ConfigFile& config);
 	[[noreturn]] void commandWorker();
-	[[noreturn]] void run(int backlog);
 	void handleNewConnection();
 	void handleClient(int fd);
 	void handleResponses(int fd);
@@ -48,6 +49,7 @@ private:
 	std::unordered_map<std::string, std::unique_ptr<Module>> m_modules;
 
 	uint32_t m_maxClients;
+	uint32_t m_backlog;
 
 	std::queue<Command> m_commands;
 	std::mutex m_commandMutex;
@@ -57,6 +59,7 @@ private:
 
 	int m_serverFd;
 	int m_epollFd;
+
 
 	std::thread m_worker;
 };
