@@ -2,23 +2,30 @@
 
 #include "ModuleFactory.h"
 
+#include "Modules/Cloud/Cloud.h"
 #include "Modules/WakeOnLan/WakeOnLanManager.h"
 
 std::unordered_map<std::string, ModuleFactory::Creator> ModuleFactory::s_modules =
 {
-	{"WakeOnLan", ModuleFactory::createWakeOnLan}
+	{"WakeOnLan", ModuleFactory::createWakeOnLan},
+	{"Cloud", ModuleFactory::createCloud},
 };
 
-std::unique_ptr<Module> ModuleFactory::create(const std::string& name, ConfigFile& config)
+std::unique_ptr<Module> ModuleFactory::create(const std::string& name, ConfigFile& config, const std::shared_ptr<StreamChannel>& sChannel)
 {
-	const auto creator = ModuleFactory::s_modules.find(name);
-	if (creator == ModuleFactory::s_modules.end())
+	const auto creator = s_modules.find(name);
+	if (creator == s_modules.end())
 		return nullptr;
 
-	return creator->second(name, config);
+	return creator->second(config, sChannel);
 }
 
-std::unique_ptr<Module> ModuleFactory::createWakeOnLan(const std::string& name, ConfigFile& config)
+std::unique_ptr<Module> ModuleFactory::createWakeOnLan(ConfigFile& config, const std::shared_ptr<StreamChannel>&)
 {
 	return std::make_unique<WakeOnLanManager>(config);
+}
+
+std::unique_ptr<Module> ModuleFactory::createCloud(ConfigFile& config, const std::shared_ptr<StreamChannel>& sChannel)
+{
+	return std::make_unique<Cloud>(config, sChannel);
 }

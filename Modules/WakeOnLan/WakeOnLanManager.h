@@ -12,12 +12,12 @@ class WakeOnLanManager final : public Module
 public:
 	explicit WakeOnLanManager(ConfigFile& config);
 
-	virtual Result execute(const Command& cmd) override;
+	virtual CommandResult execute(const CommandRequest& cmd) override;
 
 private:
 
-	Result handleDevices(const Command& cmd);
-	Result handleWake(const Command& cmd);
+	CommandResult handleDevices(const CommandRequest& cmd);
+	CommandResult handleWake(const CommandRequest& cmd);
 	bool sendWakePacket(const std::string& macAddress) const;
 
 
@@ -29,7 +29,7 @@ private:
 
 	ConfigFile& m_config;
 
-	using CommandHandler = Result(WakeOnLanManager::*)(const Command& cmd);
+	using CommandHandler = CommandResult(WakeOnLanManager::*)(const CommandRequest& cmd);
 
 	std::unordered_map<std::string, WakeOnLanManager::CommandHandler> m_commands;
 };

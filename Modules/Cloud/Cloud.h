@@ -5,16 +5,17 @@
 #include "ConfigParser/ConfigFile.h"
 #include "Modules/Module.h"
 
-class Cloud final : public Module
+class Cloud final : public StreamModule
 {
 public:
-	explicit Cloud(const ConfigFile& configFile);
+	explicit Cloud(const ConfigFile& configFile, const std::shared_ptr<StreamChannel>& StreamChannel);
 
-	Result execute(const Command& cmd) override;
+	CommandResult execute(const CommandRequest& cmd) override;
+	bool handleStream(const StreamEvent& streamCtx) override;
 
 private:
 
-	using CommandHandler = Result(Cloud::*)(const Command& cmd);
+	using CommandHandler = CommandResult(Cloud::*)(const CommandRequest& cmd);
 
-	std::unordered_map<std::string, Cloud::CommandHandler> m_commands;
+	std::unordered_map<std::string, CommandHandler> m_commands;
 };

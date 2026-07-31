@@ -11,25 +11,8 @@
 #include "ConfigParser/ConfigFile.h"
 #include "ConfigParser/ConfigManager.h"
 #include "Modules/Module.h"
-
-enum State : int
-{
-	NEW,
-	AUTH
-};
-
-struct ClientBuffer
-{
-	std::string buf;
-	std::mutex mtx;
-};
-
-struct Client
-{
-	State state;
-	ClientBuffer oBuffer;
-	ClientBuffer iBuffer;
-};
+#include "ProtocolManager/ProtocolManager.h"
+#include "ThreadPool/ThreadPool.h"
 
 class Server
 {
@@ -40,26 +23,20 @@ public:
 	[[noreturn]] void run();
 
 private:
-	void startServer(ConfigFile& config);
-	[[noreturn]] void commandWorker();
+	void startServer(ConfigFile* config);
 	void handleNewConnection();
-	void handleClient(int fd);
-	void handleResponses(int fd);
-
-	std::unordered_map<std::string, std::unique_ptr<Module>> m_modules;
+	void handleClient(int id);
+	void handleResponses(int id);
 
 	uint32_t m_maxClients;
 	uint32_t m_backlog;
 
-	std::queue<Command> m_commands;
-	std::mutex m_commandMutex;
-	std::condition_variable m_commandCV;
+	std::unordered_map<int, std::shared_ptr<ClientContext>> m_clients;
 
-	std::unordered_map<int, std::unique_ptr<Client>> m_clients;
+	std::unique_ptr<ProtocolManager> m_protocolManager;
+
+	std::atomic_uint64_t m_nextClientId{1};
 
 	int m_serverFd;
 	int m_epollFd;
-
-
-	std::thread m_worker;
 };

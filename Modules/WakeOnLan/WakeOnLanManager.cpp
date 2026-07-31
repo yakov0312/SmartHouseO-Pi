@@ -53,7 +53,7 @@ WakeOnLanManager::WakeOnLanManager(ConfigFile& config) : m_config(config),
  * @param cmd Command information including action, arguments and client fd.
  * @return Result containing the response message.
  */
-Result WakeOnLanManager::execute(const Command& cmd)
+CommandResult WakeOnLanManager::execute(const CommandRequest& cmd)
 {
 	LOG_DEBUG("Executing WoL command: " + cmd.action);
 
@@ -62,13 +62,13 @@ Result WakeOnLanManager::execute(const Command& cmd)
 	if (it == m_commands.end())
 	{
 		LOG_DEBUG("Command not found: " + cmd.action);
-		return {cmd.clientFd, "Command not found"};
+		return {cmd.clientID, "Command not found"};
 	}
 
 	if (it->second == nullptr)
 	{
 		LOG_DEBUG("Command disabled: " + cmd.action);
-		return {cmd.clientFd, "Command is not enabled"};
+		return {cmd.clientID, "Command is not enabled"};
 	}
 
 	return (this->*(it->second))(cmd);
@@ -88,7 +88,7 @@ Result WakeOnLanManager::execute(const Command& cmd)
  * @param cmd Device management command and its arguments.
  * @return Result containing the operation status or requested information.
  */
-Result WakeOnLanManager::handleDevices(const Command& cmd)
+CommandResult WakeOnLanManager::handleDevices(const CommandRequest& cmd)
 {
 	constexpr size_t ADD_ARGS = 3;
 	constexpr size_t REMOVE_ARGS = 2;
@@ -98,7 +98,7 @@ Result WakeOnLanManager::handleDevices(const Command& cmd)
 
 
 	if (cmd.args.empty())
-		return {cmd.clientFd, "Invalid command call. usage WakeOnLan Devices Get/Add/Remove"};
+		return {cmd.clientID, "Invalid command call. usage WakeOnLan Devices Get/Add/Remove"};
 
 	if (cmd.args[0] == "Get")
 	{
@@ -107,9 +107,9 @@ Result WakeOnLanManager::handleDevices(const Command& cmd)
 
 		const auto devices = m_config.getConfig(DEVICES_SECTION);
 		if (devices.empty())
-			return {cmd.clientFd, "No devices found"};
+			return {cmd.clientID, "No devices found"};
 
-		Result ret = {cmd.clientFd, ""};
+		CommandResult ret = {cmd.clientID, ""};
 
 		for (const auto &device: devices | std::views::keys)
 			ret.message += device + ", ";
@@ -126,11 +126,11 @@ Result WakeOnLanManager::handleDevices(const Command& cmd)
 
 
 		if (cmd.args.size() < ADD_ARGS) // Add, Device, Mac
-			return {cmd.clientFd, "Invalid command call. usage WakeOnLan Devices Add <device> <mac>"};
+			return {cmd.clientID, "Invalid command call. usage WakeOnLan Devices Add <device> <mac>"};
 
 		m_config.add(DEVICES_SECTION, cmd.args[1], cmd.args[2]);
 
-		return {cmd.clientFd, "Added device " + cmd.args[1]};
+		return {cmd.clientID, "Added device " + cmd.args[1]};
 	}
 
 	if (cmd.args[0] == "Remove")
@@ -139,14 +139,14 @@ Result WakeOnLanManager::handleDevices(const Command& cmd)
 
 
 		if (cmd.args.size() < REMOVE_ARGS) // Remove, Device
-			return {cmd.clientFd, "Invalid command call. usage WakeOnLan Devices Remove <device>"};
+			return {cmd.clientID, "Invalid command call. usage WakeOnLan Devices Remove <device>"};
 
 		m_config.remove(DEVICES_SECTION, cmd.args[1]);
 
-		return {cmd.clientFd, "Removed device " + cmd.args[1]};
+		return {cmd.clientID, "Removed device " + cmd.args[1]};
 	}
 
-	return {cmd.clientFd, "Arg is invalid or unsupported now"};
+	return {cmd.clientID, "Arg is invalid or unsupported now"};
 }
 
 /**
@@ -162,10 +162,10 @@ Result WakeOnLanManager::handleDevices(const Command& cmd)
  * @param cmd Wake command containing the target device name.
  * @return Result containing the operation status and response message.
  */
-Result WakeOnLanManager::handleWake(const Command& cmd)
+CommandResult WakeOnLanManager::handleWake(const CommandRequest& cmd)
 {
 	if (cmd.args.empty())
-		return {cmd.clientFd, "Invalid command call. usage WakeOnLan Wake <DeviceName>"};
+		return {cmd.clientID, "Invalid command call. usage WakeOnLan Wake <DeviceName>"};
 
 
 	LOG_DEBUG("Wake request for device: " + cmd.args[0]);
@@ -173,18 +173,18 @@ Result WakeOnLanManager::handleWake(const Command& cmd)
 
 	const std::string mac = m_config.getString(DEVICES_SECTION, cmd.args[0], "");
 	if (mac.empty())
-		return {cmd.clientFd, "Device " + cmd.args[0] + " Does not exist"};
+		return {cmd.clientID, "Device " + cmd.args[0] + " Does not exist"};
 
 
 	LOG_DEBUG("Resolved MAC address: " + mac);
 
 
 	if (!sendWakePacket(mac))
-		return {cmd.clientFd, "Failed to send WoL packet"};
+		return {cmd.clientID, "Failed to send WoL packet"};
 
 	LOG_DEBUG("Sent WoL packet");
 
-	return {cmd.clientFd, "Sent WoL packet to " + cmd.args[0]};
+	return {cmd.clientID, "Sent WoL packet to " + cmd.args[0]};
 }
 
 /**

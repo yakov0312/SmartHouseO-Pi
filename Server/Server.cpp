@@ -23,44 +23,80 @@ constexpr uint32_t DEFAULT_MAX_CLIENTS = 32;
 
 constexpr uint32_t MAX_EVENTS = 64;
 
-Server::Server(ConfigManager& config) : m_clients(0), m_serverFd(-1), m_epollFd(0)
+constexpr uint32_t COMMAND_BUFFER_SIZE = 512;
+constexpr uint32_t STREAM_BUFFER_SIZE = 4 * 4096;
+
+constexpr uint64_t CONNECTION_ID = 0;
+
+// seperate command parsing from the server
+// seperate the client struct - command parser owns out and server owns in.
+// server shouldnt care if the client is in stream or command mode.
+// server writes data to in buffer and call the parser with a ref and id. the parser looks up the id and start parsing then forward to the workers.
+// when data is available in the out buffer(the worker writes to there) the server looks up the client then ask the command parser for the parsed out buffer to return
+
+Server::Server(ConfigManager& config) : m_clients(0), m_protocolManager(nullptr), m_serverFd(-1), m_epollFd(0)
 {
 	ConfigFile* serverConf = config.getConfig("Server");
 
-	if (serverConf == nullptr)
-		throw std::runtime_error("Server module is not enabled in configuration");
-
-	m_maxClients = serverConf->getInt("Settings", "MaxClients", DEFAULT_MAX_CLIENTS);
-	m_backlog = serverConf->getInt("Settings", "Backlog", DEFAULT_BACKLOG);
+	if (serverConf != nullptr)
+	{
+		m_maxClients = serverConf->getInt("Settings", "MaxClients", DEFAULT_MAX_CLIENTS);
+		m_backlog = serverConf->getInt("Settings", "Backlog", DEFAULT_BACKLOG);
+	}
+	else
+	{
+		m_maxClients = DEFAULT_MAX_CLIENTS;
+		m_backlog = DEFAULT_BACKLOG;
+	}
 
 	LOG_DEBUG("Server MaxClients: " + std::to_string(m_maxClients));
 	LOG_DEBUG("Server Backlog: " + std::to_string(m_backlog));
 
-	auto& configs = config.getConfigs();
-
-	for (auto& [moduleName, moduleConfig] : configs)
-	{
-		if (moduleName == "Server")
-			continue;
-
-		auto module = ModuleFactory::create(moduleName, moduleConfig);
-
-		if (!module)
-			throw std::runtime_error("Failed to initialize module: " + moduleName);
-
-		Logger::get().setup("Loaded module: " + moduleName);
-
-		m_modules[moduleName] = std::move(module);
-	}
-
-	startServer(*serverConf);
+	startServer(serverConf);
 
 	config.removeConfig("Server");
 
 	Logger::get().setup("Server initialized");
+
+	m_protocolManager = std::make_unique<ProtocolManager>(config, m_epollFd);
 }
 
-void Server::startServer(ConfigFile& config)
+void Server::run()
+{
+	Logger::get().runtime("Server started");
+
+	if (listen(m_serverFd, m_backlog) == -1)
+		throw std::runtime_error("Failed to start listening on server socket");
+
+
+	Logger::get().runtime("Listening for connections");
+
+
+	epoll_event events[MAX_EVENTS];
+
+	while (true)
+	{
+		const int count = epoll_wait(m_epollFd, events, MAX_EVENTS, -1);
+
+		for (int i = 0; i < count; i++)
+		{
+			const uint64_t id = events[i].data.u64;
+
+			if (id == CONNECTION_ID)
+				handleNewConnection();
+			else if (m_clients.contains(id))
+			{
+				if (events[i].events & EPOLLIN)
+					handleClient(id);
+
+				if (events[i].events & EPOLLOUT)
+					handleResponses(id);
+			}
+		}
+	}
+}
+
+void Server::startServer(ConfigFile* config)
 {
 	m_serverFd = socket(AF_INET, SOCK_STREAM, 0);
 	if (m_serverFd == -1)
@@ -72,7 +108,7 @@ void Server::startServer(ConfigFile& config)
 	sockaddr_in addr{};
 	addr.sin_family = AF_INET;
 
-	const uint16_t port = config.getInt("Settings", "Port", DEFAULT_PORT);
+	const uint16_t port = (config) ? config->getInt("Settings", "Port", DEFAULT_PORT) : DEFAULT_PORT;
 
 	addr.sin_port = htons(port);
 	addr.sin_addr.s_addr = INADDR_ANY;
@@ -95,99 +131,13 @@ void Server::startServer(ConfigFile& config)
 
 	epoll_event event{};
 	event.events = EPOLLIN;
-	event.data.fd = m_serverFd;
+	event.data.u64 = CONNECTION_ID;
 
 	if (epoll_ctl(m_epollFd, EPOLL_CTL_ADD, m_serverFd, &event) == -1)
 		throw std::runtime_error("Failed to register server socket with epoll");
 
 
 	Logger::get().setup("Epoll initialized");
-}
-
-void Server::commandWorker()
-{
-	while (true)
-	{
-		Command cmd;
-
-		{
-			std::unique_lock lock(m_commandMutex);
-
-			m_commandCV.wait(lock, [this] {
-				return !m_commands.empty();
-			});
-
-			cmd = std::move(m_commands.front());
-			m_commands.pop();
-		}
-
-
-		LOG_DEBUG("Executing command: " + cmd.service + " " + cmd.action);
-
-
-		auto it = m_modules.find(cmd.service);
-		if (it == m_modules.end())
-		{
-			Logger::get().error("Received command for unknown service: " + cmd.service);
-			continue;
-		}
-
-
-		const Result res = it->second->execute(cmd);
-
-		Client& client = *m_clients[cmd.clientFd];
-
-		{
-			std::lock_guard<std::mutex> lock(client.oBuffer.mtx);
-
-			client.oBuffer.buf += res.message + '\n';
-		}
-
-		epoll_event event{};
-
-		event.events = EPOLLIN | EPOLLOUT;
-		event.data.fd = cmd.clientFd;
-		epoll_ctl(m_epollFd, EPOLL_CTL_MOD, cmd.clientFd, &event);
-	}
-}
-
-void Server::run()
-{
-	Logger::get().runtime("Server started");
-
-
-	m_worker = std::thread(&Server::commandWorker, this);
-
-
-	if (listen(m_serverFd, m_backlog) == -1)
-		throw std::runtime_error("Failed to start listening on server socket");
-
-
-	Logger::get().runtime("Listening for connections");
-
-
-	epoll_event events[MAX_EVENTS];
-
-	while (true)
-	{
-		const int count = epoll_wait(m_epollFd, events, MAX_EVENTS, -1);
-
-		for (int i = 0; i < count; i++)
-		{
-			const int fd = events[i].data.fd;
-
-			if (fd == m_serverFd)
-				handleNewConnection();
-			else
-			{
-				if (events[i].events & EPOLLIN)
-					handleClient(fd);
-
-				if (events[i].events & EPOLLOUT)
-					handleResponses(fd);
-			}
-		}
-	}
 }
 
 void Server::handleNewConnection()
@@ -219,14 +169,15 @@ void Server::handleNewConnection()
 		if (fcntl(clientFd, F_SETFL, flags | O_NONBLOCK) == -1)
 		{
 			close(clientFd);
-			LOG_DEBUG("Failed to set client socket as non-blocking");
+			LOG_DEBUG("Failed to initialize client connection");
 			return;
 		}
 
-		epoll_event event{};
+		const uint64_t clientID = m_nextClientId++;
 
+		epoll_event event{};
 		event.events = EPOLLIN;
-		event.data.fd = clientFd;
+		event.data.u64 = clientID;
 
 		if (epoll_ctl(m_epollFd, EPOLL_CTL_ADD, clientFd, &event) == -1)
 		{
@@ -234,109 +185,87 @@ void Server::handleNewConnection()
 			throw std::runtime_error("Failed to register client socket with epoll");
 		}
 
+		std::shared_ptr<ClientContext> client = std::make_shared<ClientContext>();
+		client->clientID = clientID;
+		client->io.fd = clientFd;
+		m_clients.emplace(clientID, client);
+		m_protocolManager->createClient(client);
 
-		m_clients.emplace(clientFd, std::make_unique<Client>());
-
-		Logger::get().runtime("Client connected (fd=" + std::to_string(clientFd) + ")");
+		Logger::get().runtime("Client connected (id=" + std::to_string(clientID) + ")");
 	}
 }
 
-void Server::handleClient(const int fd)
+void Server::handleClient(const int id)
 {
-	Client& client = *m_clients[fd];
+	const std::shared_ptr<ClientContext> client = m_clients[id];
+	ClientIO& io = client->io;
 
-	char buffer[256];
-
-	const size_t bytes = recv(fd, buffer, sizeof(buffer), 0);
-	if (bytes == 0)
-	{
-		Logger::get().runtime("Client disconnected (fd=" + std::to_string(fd) + ")");
-
-		close(fd);
-		m_clients.erase(fd);
-
-		return;
-	}
-
-	std::unique_lock uLock(client.oBuffer.mtx);
-
-	client.iBuffer.buf.append(buffer, bytes);
-
-	size_t endCom = 0;
 	while (true)
 	{
-		Command cmd;
-
-		const size_t pos = client.iBuffer.buf.find('\n', endCom);
-		if (pos == std::string::npos)
-			break;
-
-		std::stringstream ss(
-			client.iBuffer.buf.substr(endCom, pos - endCom)
-		);
-
-		uLock.unlock();
-
-		if (!(ss >> cmd.service >> cmd.action))
-			continue;
-
-		std::string arg;
-
-		while (ss >> arg)
-			cmd.args.push_back(arg);
-
-		cmd.clientFd = fd;
+		const uint16_t readSize = m_protocolManager->getMaxPacket(id);
+		if (readSize == 0)
+			return;
 
 		{
-			std::lock_guard lock(m_commandMutex);
+			std::lock_guard lock(io.inputMutex);
 
-			m_commands.push(std::move(cmd));
+			const size_t oldSize = io.inputBuffer.size();
+
+			io.inputBuffer.resize(oldSize + readSize);
+
+			const int bytes = read(client->io.fd.load(), io.inputBuffer.data() + oldSize, readSize);
+
+			if (bytes > 0)
+				io.inputBuffer.resize(oldSize + bytes);
+			else
+			{
+				io.inputBuffer.resize(oldSize);
+
+				if (bytes == 0)
+				{
+					close(client->io.fd.load());
+					client->io.fd.store(-1);
+
+					m_protocolManager->removeUser(client->clientID);
+					m_clients.erase(id);
+				}
+
+				break;
+			}
 		}
 
-		m_commandCV.notify_one();
-
-		endCom = pos + 1;
-
-		uLock.lock();
+		m_protocolManager->process(id);
 	}
-
-	client.iBuffer.buf.erase(0, endCom);
-
-	uLock.unlock();
 }
 
-void Server::handleResponses(const int fd)
+void Server::handleResponses(const int id)
 {
-	Client& client = *m_clients[fd];
+	const std::shared_ptr<ClientContext> client = m_clients[id];
+	ClientIO& io = client->io;
 
-	std::unique_lock lock(client.oBuffer.mtx);
+	std::unique_lock lock(io.outputMutex);
 
-	const size_t bytes = send(
-		fd,
-		client.oBuffer.buf.data(),
-		client.oBuffer.buf.size(),
-		0
-	);
+	const size_t bytes = send(client->io.fd.load(), io.outputBuffer.data(), io.outputBuffer.size(), 0);
 
 	if (bytes == -1)
 	{
-		Logger::get().error("Failed sending response to client fd=" + std::to_string(fd));
+		Logger::get().error("Failed sending response to client id=" + std::to_string(id));
 		return;
 	}
 
-	if (bytes < client.oBuffer.buf.size())
-		client.oBuffer.buf.erase(0, bytes);
+	if (bytes < io.outputBuffer.size())
+		io.outputBuffer.erase(0, bytes);
 	else
 	{
-		client.oBuffer.buf.clear();
+		io.outputBuffer.clear();
 
 		lock.unlock();
 
 		epoll_event event{};
 
 		event.events = EPOLLIN;
-		event.data.fd = fd;
+		event.data.u64 = id;
 
-		epoll_ctl(m_epollFd, EPOLL_CTL_MOD, fd, &event);
+		epoll_ctl(m_epollFd, EPOLL_CTL_MOD, client->io.fd.load(), &event);
 	}
 }
