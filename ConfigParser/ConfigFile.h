@@ -13,7 +13,7 @@
 #include "Journal/Journal.h"
 
 constexpr char COMMENT_SYM = '#';
-constexpr uint16_t SLEEP_TIME = 15;
+constexpr auto SETTINGS_SECTION = "Settings";
 
 class ConfigFile
 {

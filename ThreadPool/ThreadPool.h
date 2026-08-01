@@ -26,6 +26,8 @@ public:
 	explicit ThreadPool(uint8_t threadCount);
 	~ThreadPool();
 
+	void increaseThreads(uint8_t threadCount);
+
 	void schedule(int clientID, const std::function<void()>& task, const std::function<void()>& callback);
 	void remove(int ClientID);
 

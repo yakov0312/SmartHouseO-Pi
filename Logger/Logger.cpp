@@ -23,10 +23,10 @@ void Logger::init(ConfigFile* config)
 	if (config == nullptr)
 		return;
 
-	if (config->getString(LOGGER_CONFIG, "Timestamp", "Disable") == "Enable")
+	if (config->getString(SETTINGS_SECTION, "Timestamp", "Disable") == "Enable")
 		m_options |= Timestamp;
 
-	const auto fileLogging = config->getString(LOGGER_CONFIG, "File", "");
+	const auto fileLogging = config->getString(SETTINGS_SECTION, "File", "");
 
 	if (!fileLogging.empty())
 	{
@@ -34,13 +34,13 @@ void Logger::init(ConfigFile* config)
 		m_file.open(fileLogging, std::ios::app);
 	}
 
-	if (config->getString(LOGGER_CONFIG, "Setup", "Disable") == "Enable")
+	if (config->getString(SETTINGS_SECTION, "Setup", "Disable") == "Enable")
 		m_levels |= SetupLog;
 
-	if (config->getString(LOGGER_CONFIG, "Runtime", "Disable") == "Enable")
+	if (config->getString(SETTINGS_SECTION, "Runtime", "Disable") == "Enable")
 		m_levels |= RuntimeLog;
 
-	if (config->getString(LOGGER_CONFIG, "Error", "Disable") == "Enable")
+	if (config->getString(SETTINGS_SECTION, "Error", "Disable") == "Enable")
 		m_levels |= ErrorLog;
 }
 

@@ -15,7 +15,6 @@
 
 
 constexpr auto DEVICES_SECTION = "Devices";
-constexpr auto SETTINGS_SECTION = "Settings";
 
 /**
  * @brief Creates a WakeOnLanManager instance.

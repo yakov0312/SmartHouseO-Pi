@@ -9,19 +9,49 @@
 #include "ModuleFactory/ModuleFactory.h"
 #include "Server/Server.h"
 
-// Todo: add config parsing for the protocol manager. and create the thread that drain stream events
+constexpr uint32_t DEFAULT_MAX_BUFFER = 1024 * 16;
+constexpr uint32_t DEFAULT_MAX_QUEUED_CHUNKS = 4;
+constexpr uint32_t DEFAULT_COMMAND_THREADS = 2;
+constexpr uint32_t DEFAULT_STREAM_THREADS = 4;
 
+
+/**
+ * Initializes the protocol manager.
+ *
+ * Loads protocol configuration, creates worker thread pools,
+ * loads all available modules and starts the asynchronous
+ * stream event handler thread.
+ *
+ * @param configManager Configuration manager containing protocol
+ *                      and module configurations.
+ * @param epollFd Epoll instance used to notify writable sockets.
+ */
 ProtocolManager::ProtocolManager(ConfigManager& configManager, const int epollFd) :
-	m_streamPool(4), m_commandPool(1), m_maxPacket(4096),
-	m_maxStreamChunks(4), m_epollFd(epollFd), m_streamChannel(std::make_shared<StreamChannel>())
+	m_streamPool(0), m_commandPool(0), m_maxBuffer(),
+	m_maxStreamChunks(0), m_epollFd(epollFd), m_streamChannel(std::make_shared<StreamChannel>())
 {
+
+	// Config parsing
+	ConfigFile* config = configManager.getConfig("Protocol");
+	m_maxBuffer = config->getInt(SETTINGS_SECTION, "MaxBufferSize", DEFAULT_MAX_BUFFER);
+	m_maxStreamChunks = config->getInt(SETTINGS_SECTION, "MaxQueuedStreamChunks", 4);
+	m_commandPool.increaseThreads(config->getInt(SETTINGS_SECTION, "CommandThreads", DEFAULT_COMMAND_THREADS));
+	m_streamPool.increaseThreads(config->getInt(SETTINGS_SECTION, "StreamThreads", DEFAULT_STREAM_THREADS));
+
+
+	// Debug
+	LOG_DEBUG("Protocol MaxBufferSize: " + std::to_string(m_maxBuffer));
+	LOG_DEBUG("Protocol CommandThreads: " + std::to_string(commandThreads));
+	LOG_DEBUG("Protocol StreamThreads: " + std::to_string(streamThreads));
+	LOG_DEBUG("Protocol MaxQueuedStreamChunks: " + std::to_string(m_maxStreamChunks));
+
+	configManager.removeConfig("Protocol");
+
+	// Module creation
 	auto& configs = configManager.getConfigs();
 
 	for (auto& [moduleName, moduleConfig]: configs)
 	{
-		if (moduleName == "Server")
-			continue;
-
 		auto module = ModuleFactory::create(moduleName, moduleConfig, m_streamChannel);
 
 		if (!module)
@@ -29,24 +59,64 @@ ProtocolManager::ProtocolManager(ConfigManager& configManager, const int epollFd
 
 		Logger::get().setup("Loaded module: " + moduleName);
 
-		StreamModule* stream = dynamic_cast<StreamModule*>(module.get());
+		auto* stream = dynamic_cast<StreamModule*>(module.get());
 		m_modules[moduleName] = {std::move(module), stream};
 	}
+
+	m_running.store(true);
+	m_streamHandler = std::thread(&ProtocolManager::streamEventHandler, this);
+
+	Logger::get().setup("Protocol manager initialized");
 }
 
+/**
+ * Stops the stream handler thread and shuts down
+ * the protocol manager.
+ */
+ProtocolManager::~ProtocolManager()
+{
+	m_running.store(false);
+	m_streamChannel->condition.notify_all();
+
+	if (m_streamHandler.joinable())
+		m_streamHandler.join();
+}
+
+/**
+ * Registers a newly connected client.
+ *
+ * @param client Client context.
+ */
 void ProtocolManager::createClient(const std::shared_ptr<ClientContext>& client)
 {
 	std::lock_guard lock(m_clientsMtx);
 	m_clients.emplace(client->clientID, client);
 }
 
+/**
+ * Removes a client from the protocol manager.
+ *
+ * This should be called after the connection has been closed.
+ *
+ * @param id Client identifier.
+ */
 void ProtocolManager::removeUser(const uint64_t id)
 {
 	std::lock_guard lock(m_clientsMtx);
 	m_clients.erase(id);
 }
 
-uint16_t ProtocolManager::getMaxPacket(const uint64_t id)
+/**
+ * Returns the remaining writable space in the client's
+ * input buffer.
+ *
+ * Returns zero if the client no longer exists or the
+ * input buffer is already full.
+ *
+ * @param id Client identifier.
+ * @return Remaining writable bytes.
+ */
+uint16_t ProtocolManager::getAvailableInputSpace(const uint64_t id)
 {
 	std::shared_ptr<ClientContext> client;
 
@@ -60,12 +130,21 @@ uint16_t ProtocolManager::getMaxPacket(const uint64_t id)
 	}
 
 	std::lock_guard lock(client->io.inputMutex);
-	if (client->io.inputBuffer.size() >= m_maxPacket)
+	if (client->io.inputBuffer.size() >= m_maxBuffer)
 		return 0;
 
-	return m_maxPacket - client->io.inputBuffer.size();
+	return m_maxBuffer - client->io.inputBuffer.size();
 }
 
+/**
+ * Processes newly received data for a client.
+ *
+ * Automatically dispatches the client to either command
+ * parsing or stream processing depending on the current
+ * protocol state.
+ *
+ * @param id Client identifier.
+ */
 void ProtocolManager::process(const uint64_t id)
 {
 	std::shared_ptr<ClientContext> client;
@@ -90,6 +169,15 @@ void ProtocolManager::process(const uint64_t id)
 		processStream(client);
 }
 
+/**
+ * Parses complete command packets from the client's
+ * input buffer and schedules them for execution.
+ *
+ * Incomplete packets remain buffered until more data
+ * arrives.
+ *
+ * @param client Client context.
+ */
 void ProtocolManager::processCommand(const std::shared_ptr<ClientContext>& client)
 {
 	std::lock_guard lock(client->io.inputMutex);
@@ -112,7 +200,7 @@ void ProtocolManager::processCommand(const std::shared_ptr<ClientContext>& clien
 
 		uint16_t size;
 		std::memcpy(&size, io.inputBuffer.data() + start, sizeof(size));
-		if (size > m_maxPacket) // current packet size is bigger than max packet size - drop packet and mark the rest invalid
+		if (size > m_maxBuffer) // Current packet size is bigger than max buffer size - drop packet and mark the rest invalid
 		{
 			const size_t available = io.inputBuffer.size() - start - sizeof(size);
 			io.discardBytes = size - available;
@@ -125,7 +213,7 @@ void ProtocolManager::processCommand(const std::shared_ptr<ClientContext>& clien
 		if (io.inputBuffer.size() - start < size) // Not enough data
 			break;
 
-		std::stringstream ss(io.inputBuffer.substr(start, size)); // extract the command
+		std::stringstream ss(io.inputBuffer.substr(start, size)); // Extract the command
 
 		start += size;
 
@@ -150,6 +238,15 @@ void ProtocolManager::processCommand(const std::shared_ptr<ClientContext>& clien
 	io.inputBuffer.erase(0, start);
 }
 
+/**
+ * Parses stream packets from the client's input buffer
+ * and schedules stream processing tasks.
+ *
+ * Limits the number of queued stream chunks for each
+ * client to avoid unbounded memory usage.
+ *
+ * @param client Client context.
+ */
 void ProtocolManager::processStream(const std::shared_ptr<ClientContext>& client)
 {
 	std::lock_guard lock(client->io.inputMutex);
@@ -174,7 +271,7 @@ void ProtocolManager::processStream(const std::shared_ptr<ClientContext>& client
 
 		uint16_t size;
 		std::memcpy(&size, io.inputBuffer.data() + start, sizeof(size));
-		if (size > m_maxPacket) // current packet size is bigger than max packet size - drop packet and mark the rest invalid
+		if (size > m_maxBuffer) // Current packet size is bigger than max buffer size - drop packet and mark the rest invalid
 		{
 			const size_t available = io.inputBuffer.size() - start - sizeof(size);
 			io.discardBytes = size - available;
@@ -217,6 +314,16 @@ void ProtocolManager::processStream(const std::shared_ptr<ClientContext>& client
 	io.inputBuffer.erase(0, start);
 }
 
+/**
+ * Executes a previously parsed command.
+ *
+ * The command is forwarded to the corresponding module.
+ * Any generated response is appended to the client's
+ * output buffer.
+ *
+ * @param cmd Parsed command.
+ * @param wClient Weak reference to the client.
+ */
 void ProtocolManager::executeCommand(const CommandRequest& cmd, const std::weak_ptr<ClientContext>& wClient)
 {
 	LOG_DEBUG("Executing command: " + cmd.service + " " + cmd.action);
@@ -252,6 +359,15 @@ void ProtocolManager::executeCommand(const CommandRequest& cmd, const std::weak_
 	}
 }
 
+/**
+ * Passes one stream chunk to the owning module.
+ *
+ * The module decides whether the stream should remain
+ * active after processing the chunk.
+ *
+ * @param streamEvent Stream chunk.
+ * @param wClient Weak reference to the client.
+ */
 void ProtocolManager::runStream(const StreamEvent& streamEvent, const std::weak_ptr<ClientContext>& wClient)
 {
 	LOG_DEBUG("Feeding stream: " + streamEvent.service);
@@ -292,5 +408,59 @@ void ProtocolManager::runStream(const StreamEvent& streamEvent, const std::weak_
 		event.events = EPOLLIN | EPOLLOUT;
 		event.data.u64 = client->clientID;
 		epoll_ctl(m_epollFd, EPOLL_CTL_MOD, client->io.fd.load(), &event);
+	}
+}
+
+/**
+ * Background thread responsible for forwarding
+ * asynchronous stream events produced by modules
+ * to connected clients.
+ */
+void ProtocolManager::streamEventHandler()
+{
+	while (m_running.load())
+	{
+		std::queue<StreamEvent> events;
+
+		{
+			std::unique_lock lock(m_streamChannel->mutex);
+
+			auto cond = [this]
+			{
+				return !m_running.load() || !m_streamChannel->events.empty();
+			};
+			m_streamChannel->condition.wait(lock, cond);
+
+			std::swap(events, m_streamChannel->events);
+		}
+
+		while (!events.empty())
+		{
+			auto streamEvent = events.front();
+			events.pop();
+
+			std::shared_ptr<ClientContext> client;
+			{
+				std::shared_lock lock(m_clientsMtx);
+				auto it = m_clients.find(streamEvent.clientID);
+				if (it == m_clients.end())
+					continue;
+
+				client = it->second;
+			}
+
+			if (client->io.fd.load() != -1)
+			{
+				{
+					std::lock_guard lock(client->io.outputMutex);
+					client->io.outputBuffer += streamEvent.data;
+				}
+
+				epoll_event event{};
+				event.events = EPOLLIN | EPOLLOUT;
+				event.data.u64 = client->clientID;
+				epoll_ctl(m_epollFd, EPOLL_CTL_MOD, client->io.fd.load(), &event);
+			}
+		}
 	}
 }

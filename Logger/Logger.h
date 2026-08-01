@@ -10,7 +10,7 @@
 
 #include "ConfigParser/ConfigFile.h"
 
-constexpr auto LOGGER_CONFIG = "Settings";
+constexpr auto LOGGER_CONFIG = "Logger";
 
 //#define ENABLE_DEBUG_LOG 1
 

@@ -8,6 +8,10 @@
 
 constexpr auto DEFAULT_CONFIG = "./config.co";
 
+
+constexpr uint16_t SLEEP_TIME = 15;
+
+
 ConfigFile::ConfigFile(const std::filesystem::path& configPath) : m_writeBackRunning(false), m_configPath(configPath)
 {
 	if (configPath == "Enable")

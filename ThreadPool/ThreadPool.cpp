@@ -20,13 +20,26 @@ ThreadPool::~ThreadPool()
 		t.join();
 }
 
+void ThreadPool::increaseThreads(uint8_t threadCount)
+{
+	for (uint8_t i = 0; i < threadCount; i++)
+		m_workers.emplace_back(&ThreadPool::worker, this);
+}
+
 void ThreadPool::schedule(const int clientID, const std::function<void()>& task, const std::function<void()>& callback)
 {
 	std::shared_ptr<ClientWorkQueue> clientQueue;
 
 	{
 		std::lock_guard lock(m_clientQueuesMtx);
-		clientQueue = m_clientQueues[clientID];
+
+		auto it = m_clientQueues.find(clientID);
+		if (it == m_clientQueues.end())
+		{
+			it = m_clientQueues.emplace(clientID, std::make_shared<ClientWorkQueue>()).first;
+		}
+
+		clientQueue = it->second;
 	}
 
 	{

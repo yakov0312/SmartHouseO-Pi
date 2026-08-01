@@ -28,12 +28,6 @@ constexpr uint32_t STREAM_BUFFER_SIZE = 4 * 4096;
 
 constexpr uint64_t CONNECTION_ID = 0;
 
-// seperate command parsing from the server
-// seperate the client struct - command parser owns out and server owns in.
-// server shouldnt care if the client is in stream or command mode.
-// server writes data to in buffer and call the parser with a ref and id. the parser looks up the id and start parsing then forward to the workers.
-// when data is available in the out buffer(the worker writes to there) the server looks up the client then ask the command parser for the parsed out buffer to return
-
 Server::Server(ConfigManager& config) : m_clients(0), m_protocolManager(nullptr), m_serverFd(-1), m_epollFd(0)
 {
 	ConfigFile* serverConf = config.getConfig("Server");
@@ -202,7 +196,7 @@ void Server::handleClient(const int id)
 
 	while (true)
 	{
-		const uint16_t readSize = m_protocolManager->getMaxPacket(id);
+		const uint16_t readSize = m_protocolManager->getAvailableInputSpace(id);
 		if (readSize == 0)
 			return;
 

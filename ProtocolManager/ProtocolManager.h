@@ -44,11 +44,12 @@ class ProtocolManager
 {
 public:
 	explicit ProtocolManager(ConfigManager& configManager, int epollFd);
+	~ProtocolManager();
 
 	void createClient(const std::shared_ptr<ClientContext>& client);
 	void removeUser(uint64_t id);
 
-	uint16_t getMaxPacket(uint64_t id);
+	uint16_t getAvailableInputSpace(uint64_t id);
 	void process(uint64_t id);
 
 private:
@@ -58,17 +59,22 @@ private:
 	void executeCommand(const CommandRequest& cmd, const std::weak_ptr<ClientContext>& wClient);
 	void runStream(const StreamEvent& streamEvent, const std::weak_ptr<ClientContext>& wClient);
 
+	void streamEventHandler();
+
 	std::unordered_map<std::string, ModuleEntry> m_modules;
+
 	std::unordered_map<uint64_t, std::shared_ptr<ClientContext>> m_clients;
 	std::shared_mutex m_clientsMtx;
 
 	ThreadPool m_streamPool;
 	ThreadPool m_commandPool;
 
-	uint16_t m_maxPacket;
+	uint16_t m_maxBuffer;
 	uint16_t m_maxStreamChunks;
 
 	int m_epollFd;
 
+	std::thread m_streamHandler;
+	std::atomic_bool m_running;
 	std::shared_ptr<StreamChannel> m_streamChannel;
 };
