@@ -2,6 +2,10 @@
 
 #pragma once
 
+#include <condition_variable>
+#include <functional>
+#include <memory>
+#include <queue>
 #include <string>
 #include <vector>
 
@@ -20,6 +24,8 @@ struct CommandResult
 
 	std::string message;
 	bool streamTransfer;
+
+	std::vector<std::function<void()>> work;
 };
 
 class Module
@@ -49,14 +55,12 @@ struct StreamChannel
 class StreamModule : public Module
 {
 public:
-	explicit StreamModule(const std::shared_ptr<StreamChannel>& streamOutput) :
-		m_streamChannel(streamOutput)
-	{
-
-	};
+	explicit StreamModule(const std::shared_ptr<StreamChannel>& streamOutput);
 
 	virtual bool handleStream(const StreamEvent& streamCtx) = 0;
 
 protected:
 	std::shared_ptr<StreamChannel> m_streamChannel;
+
+	void sendData(const StreamEvent& event) const;
 };

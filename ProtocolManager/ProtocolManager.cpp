@@ -287,9 +287,6 @@ void ProtocolManager::processStream(const std::shared_ptr<ClientContext>& client
 		if (io.inputBuffer.size() - start >= size)
 			streamEvent.data = io.inputBuffer.substr(start, size);
 
-		if (streamEvent.data.empty())
-			break;
-
 		auto task = [this, sc = std::move(streamEvent), client = std::weak_ptr(client)]() mutable
 		{
 			runStream(sc, client);
@@ -336,7 +333,12 @@ void ProtocolManager::executeCommand(const CommandRequest& cmd, const std::weak_
 		res = {cmd.clientID, "Unknown command", false};
 	}
 	else
+	{
 		res = it->second.module->execute(cmd);
+		for (const auto& work : res.work)
+			m_commandPool.schedule(res.clientID, work, nullptr);
+
+	}
 
 	const std::shared_ptr client = wClient.lock();
 	if (client && client->io.fd.load() != -1)
@@ -451,6 +453,12 @@ void ProtocolManager::streamEventHandler()
 
 			if (client->io.fd.load() != -1)
 			{
+				if (streamEvent.data.empty())
+				{
+					std::lock_guard lock(client->stream.streamMutex);
+					client->stream.streamService.clear();
+				}
+
 				{
 					std::lock_guard lock(client->io.outputMutex);
 					client->io.outputBuffer += streamEvent.data;
